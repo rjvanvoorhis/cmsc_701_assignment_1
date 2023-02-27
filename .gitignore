@@ -2,16 +2,17 @@
 /target
 __pycache__/
 
-scripts/runs/
-scripts/results/
-references/
-queries/
-saves/
+scripts/runs/**
+scripts/results/**
+references/**
+queries/**
+saves/**
 
 # But keep the folders
-!references/.gitkeep
-!saves/.gitkeep
-!queries/.gitkeep
-!scripts/runs/.gitkeep
-!scripts/results/.gitkeep
+!.gitkeep
+# !references/.gitkeep
+# !saves/.gitkeep
+# !queries/.gitkeep
+# !scripts/runs/.gitkeep
+# !scripts/results/.gitkeep
 
