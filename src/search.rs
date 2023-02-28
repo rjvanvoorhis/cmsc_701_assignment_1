@@ -12,7 +12,7 @@ pub struct Bound {
     pub comparison: Comparison,
 }
 
-pub type Span = (usize, usize);
+pub type Span = (u32, u32);
 
 pub enum QueryMode {
     Naive,
@@ -57,15 +57,18 @@ pub fn naive_bisect_by<F>(
     suffix_array: &[u32],
     span: &Span,
     mut f: F,
-) -> usize
+    // ) -> usize
+) -> u32
 where
     F: FnMut(&Ordering) -> bool,
 {
     let (mut left, mut right) = span;
     while left < right {
-        let center: usize = (left + right) / 2;
+        //let center: usize = (left + right) / 2;
+        let center: u32 = (left + right) / 2;
         let comparison: Comparison = compare_bytes(
-            &sequence_bytes[suffix_array[center] as usize..],
+            //&sequence_bytes[suffix_array[center] as usize..],
+            &sequence_bytes[suffix_array[center as usize] as usize..],
             prefix_bytes,
             0,
         );
@@ -113,9 +116,11 @@ pub fn simple_accelerant_search(
     span: &Span,
 ) -> Option<Span> {
     let mut left_bound = Bound {
-        index: span.0,
+        index: span.0 as usize,
+        // index: span.0,
         comparison: compare_bytes(
-            &sequence_bytes[suffix_array[span.0] as usize..],
+            &sequence_bytes[suffix_array[span.0 as usize] as usize..],
+            // &sequence_bytes[suffix_array[span.0] as usize..],
             prefix_bytes,
             0,
         ),
@@ -124,9 +129,11 @@ pub fn simple_accelerant_search(
         return None;
     }
     let mut right_bound = Bound {
-        index: span.1,
+        index: span.1 as usize,
+        // index: span.1,
         comparison: compare_bytes(
-            &sequence_bytes[suffix_array[span.1 - 1] as usize..],
+            // &sequence_bytes[suffix_array[span.1 - 1] as usize..],
+            &sequence_bytes[suffix_array[span.1 as usize - 1] as usize..],
             prefix_bytes,
             0,
         ),
@@ -145,7 +152,8 @@ pub fn simple_accelerant_search(
     {
         return None;
     }
-    let left = left_bound.index;
+    let left = left_bound.index as u32;
+    // let left = left_bound.index;
     right_bound = right_bound_copy;
     simple_accelerant_bisect_by(
         sequence_bytes,
@@ -155,7 +163,8 @@ pub fn simple_accelerant_search(
         &mut right_bound,
         |&x| x != Ordering::Greater,
     );
-    Some((left, left_bound.index))
+    Some((left, left_bound.index as u32))
+    // Some((left, left_bound.index))
 }
 
 pub fn naive_search(
@@ -165,7 +174,8 @@ pub fn naive_search(
     span: &Span,
 ) -> Option<Span> {
     if compare_bytes(
-        &sequence_bytes[suffix_array[span.0] as usize..],
+        // &sequence_bytes[suffix_array[span.0] as usize..],
+        &sequence_bytes[suffix_array[span.0 as usize] as usize..],
         prefix_bytes,
         0,
     )
@@ -175,7 +185,8 @@ pub fn naive_search(
         return None;
     }
     if compare_bytes(
-        &sequence_bytes[suffix_array[span.1 - 1] as usize..],
+        // &sequence_bytes[suffix_array[span.1 - 1] as usize..],
+        &sequence_bytes[suffix_array[span.1 as usize - 1] as usize..],
         prefix_bytes,
         0,
     )
@@ -188,7 +199,8 @@ pub fn naive_search(
         x == Ordering::Less
     });
     if compare_bytes(
-        &sequence_bytes[suffix_array[left] as usize..],
+        // &sequence_bytes[suffix_array[left] as usize..],
+        &sequence_bytes[suffix_array[left as usize] as usize..],
         prefix_bytes,
         0,
     )
@@ -201,12 +213,13 @@ pub fn naive_search(
         sequence_bytes,
         prefix_bytes,
         suffix_array,
+        // &(left, span.1),
         &(left, span.1),
         |&x| x != Ordering::Greater,
     );
     Some((left, right))
+    // Some((left as u32, right as u32))
 }
-
 
 #[cfg(test)]
 mod search_tests {
@@ -242,7 +255,8 @@ mod search_tests {
         let (mut start, end) = *span;
         let mut found: bool = false;
         for idx in start..end {
-            let elem = suffix_array[idx];
+            // let elem = suffix_array[idx];
+            let elem = suffix_array[idx as usize];
             match (
                 sequence_bytes[elem as usize..].starts_with(prefix_bytes),
                 found,
@@ -302,7 +316,8 @@ mod search_tests {
             sequence.as_bytes(),
             prefix_bytes,
             &suffix_array,
-            &(0, suffix_array.len()),
+            // &(0, suffix_array.len()),
+            &(0, suffix_array.len() as u32),
         );
         assert_eq!(result, None);
     }
@@ -316,7 +331,8 @@ mod search_tests {
             sequence.as_bytes(),
             prefix_bytes,
             &suffix_array,
-            &(0, suffix_array.len()),
+            // &(0, suffix_array.len()),
+            &(0, suffix_array.len() as u32),
         );
         assert_eq!(result, None);
     }
@@ -330,7 +346,8 @@ mod search_tests {
             sequence.as_bytes(),
             prefix_bytes,
             &suffix_array,
-            &(0, suffix_array.len()),
+            // &(0, suffix_array.len()),
+            &(0, suffix_array.len() as u32),
         );
         assert_eq!(result.unwrap(), (9, 11));
     }
@@ -342,7 +359,8 @@ mod search_tests {
         let sa = get_suffix_array(&sequence);
         for _ in 0..100 {
             let prefix = generate_query(rng.gen_range(1..10) as u32);
-            let span = (0_usize, sa.len());
+            // let span = (0_usize, sa.len());
+            let span = (0_u32, sa.len() as u32);
             let baseline = very_naive_search(sequence.as_bytes(), prefix.as_bytes(), &sa, &span);
             let naive_result = naive_search(sequence.as_bytes(), prefix.as_bytes(), &sa, &span);
             let simpaccel_result =

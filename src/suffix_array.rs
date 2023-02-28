@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{min, Ordering};
 
 use serde::{Deserialize, Serialize};
 use suffix::SuffixTable;
@@ -31,24 +31,34 @@ impl SuffixArray {
     fn build_prefix_table(&self, k: u16) -> PrefixTable {
         let mut last_prefix: Option<&str> = None;
         let mut start: usize = 0;
-        let mut prefix_table: PrefixTable = PrefixTable::new(k);
-        let max_elem = self.suffix_array.len() - k as usize;
-        for (idx, ele) in self
-            .suffix_array
-            .iter()
-            .map(|&x| x as usize)
-            .filter(|&x| x < max_elem)
-            .enumerate()
-        {
-            let prefix = &self.sequence[ele..ele + k as usize];
-            if let Some(previous) = last_prefix {
-                if prefix != previous {
-                    prefix_table.insert(previous.to_string(), (start, idx));
-                    last_prefix = Some(prefix);
-                    start = idx;
-                }
-            } else {
+        let offset = k as usize;
+        let sa_len = self.suffix_array.len();
+        // let mut prefix_table: PrefixTable = PrefixTable::new(k);
+        let mut prefix_table: PrefixTable = PrefixTable::new_sparse(k);
+        for (idx, elem) in self.suffix_array.iter().map(|&x| x as usize).enumerate() {
+            let prefix = &self.sequence[elem..min(sa_len - 1, elem + offset)];
+            if last_prefix.is_none() {
                 last_prefix = Some(prefix);
+                start = idx;
+                continue;
+            }
+
+            let previous = last_prefix.unwrap();
+            if previous != prefix {
+                if previous.len() == offset && previous != "$" {
+                    // prefix_table.insert(previous.to_string(), (start, idx));
+                    prefix_table.insert(previous.to_string(), (start as u32, idx as u32));
+                    // prefix_table.insert(previous, (start, idx));
+                }
+                start = idx;
+                last_prefix = Some(prefix)
+            }
+        }
+        if let Some(previous) = last_prefix {
+            if previous.len() == offset && previous != "$" {
+                // prefix_table.insert(previous.to_string(), (start, sa_len));
+                prefix_table.insert(previous.to_string(), (start as u32, sa_len as u32));
+                // prefix_table.insert(previous, (start, sa_len));
             }
         }
         prefix_table
@@ -78,27 +88,17 @@ impl SuffixArray {
         }
     }
 
-    fn get_start_span(&self, prefix: &str) -> Option<(usize, usize)> {
+    fn get_start_span(&self, prefix: &str) -> Option<Span> {
         if let Some(table) = &self.prefix_table {
             let k = table.k() as usize;
             if prefix.len() < table.k() as usize {
-                return Some((0, self.suffix_array.len()));
+                // return Some((0, self.suffix_array.len()));
+                return Some((0, self.suffix_array.len() as u32));
             }
             return table.get(&prefix[..k]);
         }
-        Some((0, self.suffix_array.len()))
-    }
-
-    fn prefix_out_of_bounds(
-        &self,
-        sequence_bytes: &[u8],
-        prefix_bytes: &[u8],
-        span: &Span,
-    ) -> bool {
-        let view = &self.suffix_array[span.0..span.1];
-        view.is_empty()
-            || prefix_bytes < &sequence_bytes[*view.first().unwrap() as usize..]
-            || prefix_bytes > &sequence_bytes[*view.last().unwrap() as usize..]
+        // Some((0, self.suffix_array.len()))
+        Some((0, self.suffix_array.len() as u32))
     }
 
     pub fn naive_search(&self, prefix: &str) -> Option<Span> {
@@ -110,12 +110,10 @@ impl SuffixArray {
         }
         let sequence_bytes = self.sequence.as_bytes();
         let prefix_bytes = prefix.as_bytes();
-        if self.prefix_out_of_bounds(sequence_bytes, prefix_bytes, &span) {
+        // if self.suffix_array[span.0..span.1].is_empty() {
+        if self.suffix_array[span.0 as usize..span.1 as usize].is_empty() {
             return None;
         }
-        // if self.suffix_array[span.0..span.1].is_empty() {
-        //     return None;
-        // }
         naive_search(sequence_bytes, prefix_bytes, &self.suffix_array, &span)
     }
 
@@ -128,7 +126,8 @@ impl SuffixArray {
         }
         let sequence_bytes = self.sequence.as_bytes();
         let prefix_bytes = prefix.as_bytes();
-        if self.suffix_array[span.0..span.1].is_empty() {
+        // if self.suffix_array[span.0..span.1].is_empty() {
+        if self.suffix_array[span.0 as usize..span.1 as usize].is_empty() {
             return None;
         }
         simple_accelerant_search(sequence_bytes, prefix_bytes, &self.suffix_array, &span)
@@ -154,7 +153,8 @@ mod tests {
         let prefix: &str = "GCA";
         let (naive_start, naive_end) = sa.naive_search(&prefix).unwrap();
         assert_eq!(naive_end - naive_start, 2);
-        sa.suffix_array[naive_start..naive_end]
+        // sa.suffix_array[naive_start..naive_end]
+        sa.suffix_array[naive_start as usize..naive_end as usize]
             .iter()
             .for_each(|idx| {
                 assert!(

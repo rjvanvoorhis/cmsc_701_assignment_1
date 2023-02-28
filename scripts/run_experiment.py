@@ -171,11 +171,34 @@ def update_querysa(item):
 def main():
     for reference in ["ecoli.fasta", "mouse_chr_16.fasta", "human_chr_1.fasta"]:
         # for reference in ["mouse_chr_16.fasta", "human_chr_1.fasta"]:
-        run_file = RUNS / f"{reference.split('.', 1)[0]}-run.json"
+        run_file = RUNS / f"{reference.split('.', 1)[0]}-run-post-refactor.json"
         result = run_experiment(REFERENCE / reference)
         format_results(result)
         run_file.write_text(json.dumps(result, indent=4))
 
 
+def verify_methods(reference):
+    query_file, _ = build_query(reference, QueryOptions(min_length=5, max_length=50))
+    next_file = "b.txt"
+    current_file = "a.txt"
+    prev = None
+    for k in [0, *range(3,14)]:
+        save_file, _ = build_sa(reference, k)
+        for query_mode in ["naive", "simpaccel"]:
+            run_command(
+                [QUERY_SA, save_file, str(query_file), query_mode, current_file]
+            )
+            if prev != None:
+                print(
+                    f"Running diff with output from query_mode={query_mode} and k={k}"
+                )
+                diff = run_command(["diff", current_file, prev])
+                print(f"ERROR! found diff:\n{diff}" if diff else "Texts match...")
+                next_file = prev
+            prev = current_file
+            current_file = next_file
+
+
 if __name__ == "__main__":
+    # verify_methods(REFERENCE / "ecoli.fasta")
     main()

@@ -31,7 +31,8 @@ fn raw_search_function_harness(query_mode: QueryMode, sa: &SuffixArray, records:
         QueryMode::Naive => naive_search,
     };
     let sequence_bytes = sa.sequence.as_bytes();
-    let span: Span = (0, sequence_bytes.len());
+    // let span: Span = (0, sequence_bytes.len());
+    let span: Span = (0, sequence_bytes.len() as u32);
     records.iter().for_each(|record| {
         f(
             sequence_bytes,
@@ -63,12 +64,8 @@ fn search_harness(query_mode: QueryMode, sa: &SuffixArray, records: &Vec<Record>
 }
 
 fn raw_search_criterion(c: &mut Criterion) {
-    let sa = get_suffix_array(
-        "./benches/data/ecoli_sa.bin",
-    );
-    let records: Vec<Record> = get_records(
-        "./benches/data/mixed_queries.fasta",
-    );
+    let sa = get_suffix_array("./benches/data/ecoli_sa.bin");
+    let records: Vec<Record> = get_records("./benches/data/mixed_queries.fasta");
 
     c.bench_function("raw naive search", |b| {
         b.iter(|| raw_search_function_harness(QueryMode::Naive, &sa, &records))

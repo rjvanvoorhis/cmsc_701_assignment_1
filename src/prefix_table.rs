@@ -1,130 +1,216 @@
+use eyre::{eyre, Report, Result};
 use itertools::Itertools;
-use serde::{Deserialize, Serialize, Serializer};
-use std::collections::HashMap;
+use serde::{ser::SerializeTupleVariant, Deserialize, Serialize};
+use std::{collections::HashMap, iter::zip};
 
-#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
-pub struct CompactPrefixTable(Vec<Option<(usize, usize)>>);
+use crate::search::Span;
 
-impl CompactPrefixTable {
-    pub fn get(&self, idx: usize) -> Option<(usize, usize)> {
-        if let Some(pair) = self.0.get(idx) {
-            return *pair;
-        }
-        None
-    }
-
-    pub fn k(&self) -> u16 {
-        (self.0.len() as f32).log(4.0) as u16
-    }
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
+pub enum PrefixTable {
+    Sparse(u16, HashMap<String, Span>),
+    Dense(Vec<Option<Span>>),
 }
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(from = "CompactPrefixTable")]
-pub struct PrefixTable(u16, HashMap<String, (usize, usize)>);
 
 impl PrefixTable {
-    pub fn get(&self, k: &str) -> Option<(usize, usize)> {
-        if let Some(pair) = self.1.get(k) {
-            return Some(*pair);
-        }
-        None
+    pub fn new_dense(k: u16) -> Self {
+        Self::Dense(vec![None; 4_usize.pow(k as u32)])
+    }
+
+    pub fn new_sparse(k: u16) -> Self {
+        Self::Sparse(k, HashMap::new())
     }
 
     pub fn k(&self) -> u16 {
-        self.0
+        match self {
+            Self::Dense(table) => (table.len() as f32).log(4.0) as u16,
+            Self::Sparse(k, _) => *k,
+        }
     }
 
-    pub fn new(k: u16) -> Self {
-        Self(k, HashMap::new())
-    }
-
-    pub fn insert(&mut self, k: String, v: (usize, usize)) {
-        self.1.insert(k, v);
-    }
-}
-
-impl From<CompactPrefixTable> for PrefixTable {
-    fn from(other: CompactPrefixTable) -> Self {
-        let k = other.k();
-        let mut table: HashMap<String, (usize, usize)> = HashMap::new();
-        for (idx, chars) in (0..k)
-            .map(|_| "ACGT".chars())
-            .multi_cartesian_product()
-            .enumerate()
-        {
-            let key: String = chars.iter().collect();
-            if let Some(value) = other.0[idx] {
-                table.insert(key, value);
+    pub fn get(&self, k: &str) -> Option<Span> {
+        match self {
+            Self::Sparse(_, table) => table.get(k).copied(),
+            Self::Dense(table) => {
+                let index = prefix_to_index(k).unwrap();
+                if let Some(pair) = table.get(index) {
+                    return *pair;
+                }
+                None
             }
         }
-        Self(k, table)
+    }
+
+    pub fn insert(&mut self, k: String, v: Span) {
+        match self {
+            Self::Dense(table) => {
+                let index = prefix_to_index(&k).unwrap();
+                table.insert(index, Some(v))
+            }
+            Self::Sparse(_, table) => {
+                table.insert(k, v);
+            }
+        }
+    }
+
+    pub fn to_dense(other: Self) -> Self {
+        match other {
+            Self::Dense(_) => other,
+            Self::Sparse(k, mut table) => {
+                let dense = (0..k)
+                    .map(|_| "ACGT".chars())
+                    .multi_cartesian_product()
+                    .map(|chars| {
+                        let prefix: String = chars.iter().collect();
+                        table.remove(&prefix)
+                    })
+                    .collect::<Vec<Option<Span>>>();
+                Self::Dense(dense)
+            }
+        }
+    }
+
+    pub fn clone_dense(other: &Self) -> Self {
+        match other {
+            Self::Dense(_) => other.clone(),
+            Self::Sparse(k, table) => {
+                let dense = (0..*k)
+                    .map(|_| "ACGT".chars())
+                    .multi_cartesian_product()
+                    .map(|chars| {
+                        let prefix: String = chars.iter().collect();
+                        table.get(&prefix).copied()
+                    })
+                    .collect::<Vec<Option<Span>>>();
+                Self::Dense(dense)
+            }
+        }
+    }
+
+    pub fn to_sparse(other: Self) -> Self {
+        let k = other.k();
+        match other {
+            Self::Sparse(_, _) => other,
+            Self::Dense(table) => {
+                let mut sparse: HashMap<String, Span> = HashMap::new();
+                zip(
+                    (0..k)
+                        .map(|_| "ACGT".chars())
+                        .multi_cartesian_product()
+                        .map(|x| x.iter().collect::<String>()),
+                    table.into_iter(),
+                )
+                .for_each(|(prefix, span)| {
+                    if let Some(value) = span {
+                        sparse.insert(prefix, value);
+                    }
+                });
+                Self::Sparse(k, sparse)
+            }
+        }
     }
 }
 
 impl Serialize for PrefixTable {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
-        CompactPrefixTable::from(self).serialize(serializer)
+        match self {
+            Self::Sparse(k, table) => {
+                if *k < 12 {
+                    let dense = Self::clone_dense(self);
+                    return dense.serialize(serializer);
+                }
+                let mut state =
+                    serializer.serialize_tuple_variant("PrefixTable", 0, "Sparse", 2)?;
+                state.serialize_field(k)?;
+                state.serialize_field(table)?;
+                state.end()
+            }
+            Self::Dense(table) => {
+                let mut state = serializer.serialize_tuple_variant("PrefixTable", 1, "Dense", 1)?;
+                state.serialize_field(table)?;
+                state.end()
+            }
+        }
     }
 }
 
-impl<'a> From<&'a PrefixTable> for CompactPrefixTable {
-    fn from(other: &'a PrefixTable) -> Self {
-        let mut table: Vec<Option<(usize, usize)>> = Vec::new();
-        if let Some(key) = other.1.keys().next() {
-            let k = key.len();
-            for chars in (0..k).map(|_| "ACGT".chars()).multi_cartesian_product() {
-                let prefix: String = chars.iter().collect();
-                table.push(other.get(&prefix))
-            }
-        }
-        // let k = (other.0.len() as f32).log(4.0) as u16;
-        Self(table)
+fn nucleotide_to_int(nucleotide: &char) -> Result<usize> {
+    match nucleotide {
+        'A' => Ok(0),
+        'C' => Ok(1),
+        'G' => Ok(2),
+        'T' => Ok(3),
+        _ => Err(eyre!("Received unexpected nucleotide: {nucleotide}")),
     }
+}
+
+fn nucleotide_to_value(nucleotide: &char) -> Result<char> {
+    match nucleotide {
+        'A' => Ok('0'),
+        'C' => Ok('1'),
+        'G' => Ok('2'),
+        'T' => Ok('3'),
+        _ => Err(eyre!("Received unexpected nucleotide: {nucleotide}")),
+    }
+}
+
+/// Convert a prefix like AAC to it's position in the prefix array
+/// ```
+/// # use assignment_1::prefix_table::prefix_to_index;
+/// assert_eq!(prefix_to_index("AAC").unwrap(), 1);
+/// assert_eq!(prefix_to_index("ATC").unwrap(), 13);
+pub fn prefix_to_index(prefix: &str) -> Result<usize> {
+    let result = prefix
+        .chars()
+        .map(|x| nucleotide_to_value(&x))
+        .collect::<Result<String>>()?;
+    Ok(usize::from_str_radix(&result, 4)?)
+}
+
+/// Convert a prefix like AAC to it's position in the prefix array (alternate implementation)
+/// ```
+/// # use assignment_1::prefix_table::{prefix_to_index_custom as prefix_to_index};
+/// assert_eq!(prefix_to_index("AAC").unwrap(), 1);
+/// assert_eq!(prefix_to_index("ATC").unwrap(), 13);
+pub fn prefix_to_index_custom(prefix: &str) -> Result<usize> {
+    let mut result = 0_usize;
+    prefix
+        .chars()
+        .rev()
+        .enumerate()
+        .try_for_each(|(idx, nucleotide)| {
+            result += 4_usize.pow(idx as u32) * nucleotide_to_int(&nucleotide)?;
+            Ok::<(), Report>(())
+        })?;
+    Ok(result)
 }
 
 #[cfg(test)]
 pub mod tests {
+
     use super::*;
 
-    fn create_sample_vector() -> Vec<Option<(usize, usize)>> {
-        let mut sample_vector: Vec<Option<(usize, usize)>> = Vec::new();
-        sample_vector.push(Some((0, 1)));
-        sample_vector.push(Some((1, 4)));
-        sample_vector.push(None);
-        sample_vector.push(Some((4, 5)));
-        sample_vector
+    #[test]
+    fn test_serialize_deserialize_sparse() {
+        let mut table = PrefixTable::new_sparse(2);
+        table.insert(String::from("AA"), (0, 1));
+        table.insert(String::from("AC"), (1, 3));
+        table.insert(String::from("TT"), (3, 5));
+        let table_bytes = bincode::serialize(&table).unwrap();
+        let copied: PrefixTable = bincode::deserialize(&table_bytes).unwrap();
+        let sparse = PrefixTable::to_sparse(copied);
+        assert_eq!(table, sparse);
     }
 
     #[test]
-    fn convert_from_compact() {
-        let sample_vector = create_sample_vector();
-        let original = CompactPrefixTable(sample_vector);
-        let original_pair = original.get(0).unwrap();
-        let prefix_table = PrefixTable::from(original);
-        assert_eq!(original_pair, prefix_table.get("A").unwrap());
-    }
-
-    #[test]
-    fn deserialize_to_compact() {
-        let sample_vector = create_sample_vector();
-
-        let original = CompactPrefixTable(sample_vector);
-        let original_bytes = bincode::serialize(&original).unwrap();
-        let compact_copy: CompactPrefixTable = bincode::deserialize(&original_bytes).unwrap();
-        assert_eq!(original, compact_copy);
-    }
-
-    #[test]
-    fn deserialize_to_prefix_table() {
-        let sample_vector = create_sample_vector();
-
-        let original = CompactPrefixTable(sample_vector);
-        let original_bytes = bincode::serialize(&original).unwrap();
-        let converted_prefix_table: PrefixTable = PrefixTable::from(original);
-        let deserialized_prefix_table: PrefixTable = bincode::deserialize(&original_bytes).unwrap();
-        assert_eq!(converted_prefix_table, deserialized_prefix_table);
+    fn test_serialize_large_k() {
+        let mut table = PrefixTable::new_sparse(20);
+        table.insert(String::from("AAAAAAAAAAAAAAAAAAAA"), (0, 3));
+        table.insert(String::from("TTTTTTTTTTTTTTTTTTTT"), (3, 5));
+        let table_bytes = bincode::serialize(&table).unwrap();
+        let copied: PrefixTable = bincode::deserialize(&table_bytes).unwrap();
+        assert_eq!(copied, table);
     }
 }

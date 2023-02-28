@@ -73,6 +73,6 @@ pub struct BuildQueryArgs {
     pub max_length: u16,
 
     /// The number of queries to generate (defaults to 100)
-    #[arg(short, long, default_value="100")]
+    #[arg(short, long, default_value = "100")]
     pub queries: usize,
 }

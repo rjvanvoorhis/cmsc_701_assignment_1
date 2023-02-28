@@ -20,7 +20,8 @@ fn format_output_line(suffix_array: &SuffixArray, record: &Record, result: Optio
         None => write!(&mut line, ", 0").unwrap(),
         Some((start, end)) => {
             write!(&mut line, ", {}", end - start).unwrap();
-            suffix_array.suffix_array[start..end]
+            // suffix_array.suffix_array[start..end]
+            suffix_array.suffix_array[start as usize..end as usize]
                 .iter()
                 .for_each(|&idx| write!(&mut line, ", {idx}").unwrap());
         }
