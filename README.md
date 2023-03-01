@@ -29,12 +29,13 @@ Arguments:
 Options:
   -p, --preftab <k>  Build a prefix table of size <k> for this reference sequence
   -h, --help         Print help
-Find occurences of query strings in a reference sequence using the saved suffix array from buildsa
 ```
 
 And for querysa
 ```
-Usage: querysa <INDEX> <QUERIES> <QUERY_MODE> <OUTPUT>
+Find occurences of query strings in a reference sequence using the saved suffix array from buildsa
+
+Usage: querysa [OPTIONS] <INDEX> <QUERIES> <QUERY_MODE> [OUTPUT]
 
 Arguments:
   <INDEX>
@@ -48,10 +49,14 @@ Arguments:
           - naive:     bisect left and right with redundant comparisons
           - simpaccel: bisect left and right, skipping min lcp comparisons
 
-  <OUTPUT>
-          The path to the file the results are written to
+  [OUTPUT]
+          The path to the file the results are written to (not required if quiet flag is set)
 
 Options:
+  -q, --quiet
+          run queries without writing the results to the output file
+
   -h, --help
           Print help (see a summary with '-h')
 ```
+
